@@ -5,7 +5,6 @@
 
 #include <string.h>
 #include <unistd.h>
-#include <sys/epoll.h>
 #include <errno.h>
 
 #include "epoller.h"
@@ -30,7 +29,7 @@ using namespace std;
 /////////////////////////////////////////////////////////////////////////////////
 // EPoller()
 /////////////////////////////////////////////////////////////////////////////////
-EPoller::EPoller(int to)
+EPoller::EPoller(const int to)
 {
 	rdyfds = -1;
 	fdcnt = 0;
@@ -91,7 +90,7 @@ void EPoller::Shutdown()
 /////////////////////////////////////////////////////////////////////////////////
 // AddFD()
 /////////////////////////////////////////////////////////////////////////////////
-bool EPoller::AddFD(int fd, int epoll_events, epoller_cb_t *cb)
+bool EPoller::AddFD(const int fd, const int epoll_events, const epoller_cb_t *cb)
 {
 	fdcnt++;
 	return addmoddelfd(fd, epoll_events, cb, EPOLL_CTL_ADD);
@@ -101,7 +100,7 @@ bool EPoller::AddFD(int fd, int epoll_events, epoller_cb_t *cb)
 /////////////////////////////////////////////////////////////////////////////////
 // ModifyFD()
 /////////////////////////////////////////////////////////////////////////////////
-bool EPoller::ModifyFD(int fd, int epoll_events, epoller_cb_t *cb)
+bool EPoller::ModifyFD(const int fd, const int epoll_events, const epoller_cb_t *cb)
 {
 	return addmoddelfd(fd, epoll_events, cb, EPOLL_CTL_ADD);
 }
@@ -110,7 +109,7 @@ bool EPoller::ModifyFD(int fd, int epoll_events, epoller_cb_t *cb)
 /////////////////////////////////////////////////////////////////////////////////
 // RemoveFD()
 /////////////////////////////////////////////////////////////////////////////////
-bool EPoller::RemoveFD(int fd)
+bool EPoller::RemoveFD(const int fd)
 {
 	fdcnt--;
 	return addmoddelfd(fd, 0, nullptr, EPOLL_CTL_DEL);
@@ -120,11 +119,11 @@ bool EPoller::RemoveFD(int fd)
 /////////////////////////////////////////////////////////////////////////////////
 // addmoddelfd()
 /////////////////////////////////////////////////////////////////////////////////
-bool EPoller::addmoddelfd(int fd, int epoll_events, epoller_cb_t *cb, int op)
+bool EPoller::addmoddelfd(const int fd, const int epoll_events, const epoller_cb_t *cb, const int op)
 {
 	struct epoll_event event;
 
-	event.data.ptr = cb;
+	event.data.ptr = (void *) cb;
 	event.events = epoll_events;
 
 	if(epoll_ctl(epollfd, op, fd, &event) < 0)

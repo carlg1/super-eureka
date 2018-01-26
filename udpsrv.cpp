@@ -9,7 +9,6 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <errno.h>
-#include <fcntl.h>
 
 #include "udpsrv.h"
 
@@ -33,7 +32,11 @@ UDPServer::UDPServer(uint16_t prt, char *bindadr)
 
 	port = prt;
 	bindaddr = bindadr;
-	//validate now?
+
+	epcb.obj = this;
+	epcb.funct = udpsrv_epoller_cb;
+
+	//fix me -- validate now?
 }
 
 
@@ -50,11 +53,10 @@ UDPServer::~UDPServer()
 /////////////////////////////////////////////////////////////////////////////////
 // StartServer()
 /////////////////////////////////////////////////////////////////////////////////
-bool UDPServer::StartServer()
+bool UDPServer::StartServer(EPoller *ep)
 {
 	int rv;
 	int ov;
-	int flags;
 	struct sockaddr_in6 sa;
 
 	srvfd = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -79,19 +81,7 @@ bool UDPServer::StartServer()
 
 	rv = bind(srvfd, (const sockaddr*) &sa, sizeof(struct sockaddr_in6));
 
-	if((flags = fcntl(srvfd, F_GETFL, 0)) < 0)
-	{
-		typeof(errno) en = errno;
-		cerr << "'fcntl' failed getting flags [" << en << " <" << strerror(en) << ">]!" << endl;
-		return false;
-	}
-
-	if(fcntl(srvfd, F_SETFL, flags | O_NONBLOCK) < 0) 
-	{
-		typeof(errno) en = errno;
-		cerr << "'fcntl' failed getting flags [" << en << " <" << strerror(en) << ">]!" << endl;
-		return false;
-	}
+	ep->AddFD(srvfd, EPOLLIN, &epcb);
 
 	return true;
 }
@@ -100,11 +90,23 @@ bool UDPServer::StartServer()
 /////////////////////////////////////////////////////////////////////////////////
 // GetData()
 /////////////////////////////////////////////////////////////////////////////////
-int UDPServer::GetData(void *buff, const int bufflen)
+bool UDPServer::GetData()
 {
 	ssize_t rv;
-	rv = recvfrom(srvfd, buff, bufflen, 0, NULL, NULL);
-	return rv;
+	char data[100];
+
+	rv = recvfrom(srvfd, data, 100, 0, NULL, NULL);
+	if(rv < 0)
+	{
+		typeof(errno) en = errno;
+		cerr << "'recvfrom' failed (continuing to run) [" << en << " <" << strerror(en) << ">]!" << endl;
+		return false;
+	}
+
+	data[rv] = '\0';
+	cout << "Read # " << rv << " of bytes! Data = '" << data << "'" << endl;
+
+	return true;
 }
 
 

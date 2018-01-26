@@ -5,6 +5,8 @@
 /////////////////////////////////////////////////////////////////////////////////
 #include <stdint.h>
 
+#include "epoller.h"
+
 
 /////////////////////////////////////////////////////////////////////////////////
 // Class Defintion
@@ -16,13 +18,15 @@ public:
 	UDPServer(uint16_t prt, char *bindadr = nullptr);
 	~UDPServer();
 
-	bool StartServer();
+	bool StartServer(EPoller *ep);
 	bool StopServer();
-	int GetData(void *buff, const int bufflen);
-	bool EPollCheck();
+	bool GetData();
 
  private:
 	int srvfd;
 	char *bindaddr;
 	uint16_t port;
+	epoller_cb_t epcb;
+
+	static bool udpsrv_epoller_cb(void *obj, int events) {return ((UDPServer *) obj)->GetData();};
 };

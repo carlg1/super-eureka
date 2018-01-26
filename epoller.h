@@ -1,6 +1,12 @@
 #pragma once
 
 /////////////////////////////////////////////////////////////////////////////////
+// #includes
+/////////////////////////////////////////////////////////////////////////////////
+#include <sys/epoll.h>
+
+
+/////////////////////////////////////////////////////////////////////////////////
 // Struct
 /////////////////////////////////////////////////////////////////////////////////
 typedef struct epoller_cb_
@@ -29,14 +35,14 @@ public:
 
 	bool Ready();
 	void Shutdown();
-	bool AddFD(int fd, int epoll_events, epoller_cb_t *cb);
-	bool RemoveFD(int fd);
-	bool ModifyFD(int fd, int epoll_events, epoller_cb_t *cb);
+	bool AddFD(const int fd, const int epoll_events, const epoller_cb_t *cb);
+	bool RemoveFD(const int fd);
+	bool ModifyFD(const int fd, const int epoll_events, const epoller_cb_t *cb);
 	epoller_rv Poll();
 	bool ProccessLoop();
 
  private:
-	bool addmoddelfd(int fd, int epoll_events, epoller_cb_t *cb, int op);
+	bool addmoddelfd(const int fd, const int epoll_events, const epoller_cb_t *cb, const int op);
 
 	int fdcnt; //fix me -- can go neg
 	int timeout;

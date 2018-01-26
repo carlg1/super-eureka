@@ -89,11 +89,6 @@ int main(int argc, char *argv[])
 		{
 			if(!epoller.ProccessLoop())
 				break;
-
-			//char data[100];
-			//int len = srv->GetData(data, 100);
-			//data[len] = '\0';
-			//cout << "Read # " << len << " of bytes! Data = '" << data << "'" << endl; 
 		}
 		else if(eprv == EPoller::EPOLLER_ERR)
 			break;
@@ -126,14 +121,14 @@ bool Initilaize()
 		return false;
 	}
 
-	srv = new UDPServer(tbdconf.GetPort());
-	srv->StartServer();
-
 	if(!epoller.Ready())
 	{
 		cerr << "epoller not ready!" << endl;
 		return false;
 	}
+
+	srv = new UDPServer(tbdconf.GetPort());
+	srv->StartServer(&epoller);
 
 	return true;
 }
