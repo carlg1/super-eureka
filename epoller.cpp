@@ -1,18 +1,20 @@
 /////////////////////////////////////////////////////////////////////////////////
 // #includes
 /////////////////////////////////////////////////////////////////////////////////
-//#include <iostream>
-//
-//#include <string.h>
-//#include <sys/types.h>
-//#include <sys/socket.h>
-//#include <netinet/in.h>
-//#include <unistd.h>
+#include <iostream>
+
+#include <string.h>
+#include <unistd.h>
 #include <sys/epoll.h>
 #include <errno.h>
-//#include <fcntl.h>
 
-#include "eplller.h"
+#include "epoller.h"
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// #defines
+/////////////////////////////////////////////////////////////////////////////////
+#define MAXEVTCNT 20
 
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -28,14 +30,27 @@ using namespace std;
 /////////////////////////////////////////////////////////////////////////////////
 // EPoller()
 /////////////////////////////////////////////////////////////////////////////////
-EPoller::EPoller()
+EPoller::EPoller(int to)
 {
+	rdyfds = -1;
+	fdcnt = 0;
+	timeout = -2; //fix me
+	maxevtcnt = MAXEVTCNT;
+
 	if((epollfd = epoll_create1(EPOLL_CLOEXEC)) < 0)
 	{
 		typeof(errno) en = errno;
 		cerr << "'epoll_create1' failed [" << en << " <" << strerror(en) << ">]!" << endl;
-		return; //fix me -- throw an exception
 	}
+
+	if(to >= -1 && to <= 10000)
+		timeout = to;
+	else
+		cerr << "Invalid timeout '" << to << "' " << "(valid values are -1 to 10000)!" << endl;
+
+	events = (struct epoll_event *) malloc(sizeof(struct epoll_event) * maxevtcnt);
+	if(events == nullptr)
+		cerr << "malloc failed!" << endl;
 }
 
 
@@ -44,104 +59,123 @@ EPoller::EPoller()
 /////////////////////////////////////////////////////////////////////////////////
 EPoller::~EPoller()
 {
-	if(srvfd != -1)
-		StopServer();
+	if(epollfd != -1)
+		Shutdown();
+
+	free(events);
 }
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// StartServer()
+// Ready()
 /////////////////////////////////////////////////////////////////////////////////
-bool EPoller::StartServer()
+bool EPoller::Ready()
 {
-	int rv;
-	int ov;
-	int flags;
-	struct epoll_event nepe;
-	struct sockaddr_in6 sa;
+	if(epollfd > -1 || timeout != -2 || events == nullptr) //fix me
+		return true;
+	return false;
+}
 
-	srvfd = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-	if(srvfd < 0)
-	{
-		cerr << "Failed to obtain 'socket'!" << endl;
-		return false;
-	}
 
-	ov = 1;
-	rv = setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, (void *) &ov, 4);
-	if(rv != 0)
+/////////////////////////////////////////////////////////////////////////////////
+// Shutdown()
+/////////////////////////////////////////////////////////////////////////////////
+void EPoller::Shutdown()
+{
+	if(epollfd > -1)
+		close(epollfd);
+	epollfd = -1;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// AddFD()
+/////////////////////////////////////////////////////////////////////////////////
+bool EPoller::AddFD(int fd, int epoll_events, epoller_cb_t *cb)
+{
+	fdcnt++;
+	return addmoddelfd(fd, epoll_events, cb, EPOLL_CTL_ADD);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// ModifyFD()
+/////////////////////////////////////////////////////////////////////////////////
+bool EPoller::ModifyFD(int fd, int epoll_events, epoller_cb_t *cb)
+{
+	return addmoddelfd(fd, epoll_events, cb, EPOLL_CTL_ADD);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// RemoveFD()
+/////////////////////////////////////////////////////////////////////////////////
+bool EPoller::RemoveFD(int fd)
+{
+	fdcnt--;
+	return addmoddelfd(fd, 0, nullptr, EPOLL_CTL_DEL);
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// addmoddelfd()
+/////////////////////////////////////////////////////////////////////////////////
+bool EPoller::addmoddelfd(int fd, int epoll_events, epoller_cb_t *cb, int op)
+{
+	struct epoll_event event;
+
+	event.data.ptr = cb;
+	event.events = epoll_events;
+
+	if(epoll_ctl(epollfd, op, fd, &event) < 0)
 	{
 		typeof(errno) en = errno;
-		cerr << "'setsockopt' failed (continuing to run) [" << en << " <" << strerror(en) << ">]!" << endl;
-	}
-
-	memset(&sa, 0, sizeof(struct sockaddr_in6));
-	sa.sin6_family = AF_INET6;
-	sa.sin6_port = htons(port);
-	sa.sin6_addr = in6addr_any;
-
-	rv = bind(srvfd, (const sockaddr*) &sa, sizeof(struct sockaddr_in6));
-
-	if((flags = fcntl(srvfd, F_GETFL, 0)) < 0)
-	{
-		typeof(errno) en = errno;
-		cerr << "'fcntl' failed getting flags [" << en << " <" << strerror(en) << ">]!" << endl;
+		cerr << "'epoll_ctl' failed [" << en << " <" << strerror(en) << ">]!" << endl;
 		return false;
 	}
-
-	if(fcntl(srvfd, F_SETFL, flags | O_NONBLOCK) < 0) 
-	{
-		typeof(errno) en = errno;
-		cerr << "'fcntl' failed getting flags [" << en << " <" << strerror(en) << ">]!" << endl;
-		return false;
-	}
-
-	//nepe.events = EPOLLIN;
-	//
-	//if(epoll_ctl(epollfd, EPOLL_CTL_ADD, srvfd, &nepe) < 0)
-	//{
-	//	typeof(errno) en = errno;
-	//	cerr << "'epoll_create1' failed [" << en << " <" << strerror(en) << ">]!" << endl;
-	//	return false;
-	//}
 
 	return true;
 }
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// GetData()
+// Poll()
 /////////////////////////////////////////////////////////////////////////////////
-int EPoller::GetData(void *buff, const int bufflen)
+EPoller::epoller_rv EPoller::Poll()
 {
-	ssize_t rv;
-	rv = recvfrom(srvfd, buff, bufflen, 0, NULL, NULL);
-	return rv;
+	if(fdcnt == 0)
+		return EPOLLER_NODATA;
+
+	rdyfds = epoll_wait(epollfd, events, maxevtcnt, timeout);
+	if(rdyfds < 0)
+	{
+		typeof(errno) en = errno;
+		cerr << "'epoll_ctl' failed [" << en << " <" << strerror(en) << ">]!" << endl;
+		return EPOLLER_ERR;
+	}
+	else if(rdyfds == 0)
+		return EPOLLER_NODATA;
+	else
+		return EPOLLER_DATA;
 }
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// StopServer()
+// ProccessLoop()
 /////////////////////////////////////////////////////////////////////////////////
-bool EPoller::StopServer()
+bool EPoller::ProccessLoop()
 {
-	//close(epollfd);
-	close(srvfd);
+	bool rv;
+
+	if(rdyfds < 0)
+		return false;
+
+	for(int i = 0; i < rdyfds; i++)
+	{
+		rv = ((epoller_cb_t *) events[i].data.ptr)->funct(((epoller_cb_t *) events[i].data.ptr)->obj, events[i].events);
+		if(rv == false)
+			return false;
+	}
+
 	return true;
 }
-
-
-/////////////////////////////////////////////////////////////////////////////////
-// EPollCheck()
-/////////////////////////////////////////////////////////////////////////////////
-//bool EPoller::EPollCheck()
-//{
-//#define MAX_EVENTS 2
-//	int nfds;
-//	struct epoll_event events[MAX_EVENTS];
-//	nfds = epoll_wait(epollfd, events, MAX_EVENTS, 0);
-//	if(nfds < 1)
-//		return false;
-//	return true;
-//#undef MAX_EVENTS
-//}

@@ -9,7 +9,6 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <errno.h>
-#include <sys/epoll.h>
 #include <fcntl.h>
 
 #include "udpsrv.h"
@@ -31,7 +30,6 @@ using namespace std;
 UDPServer::UDPServer(uint16_t prt, char *bindadr)
 {
 	srvfd = -1;
-	//epollfd = -1;
 
 	port = prt;
 	bindaddr = bindadr;
@@ -57,7 +55,6 @@ bool UDPServer::StartServer()
 	int rv;
 	int ov;
 	int flags;
-	struct epoll_event nepe;
 	struct sockaddr_in6 sa;
 
 	srvfd = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -96,22 +93,6 @@ bool UDPServer::StartServer()
 		return false;
 	}
 
-	//if((epollfd = epoll_create1(EPOLL_CLOEXEC)) < 0)
-	//{
-	//	typeof(errno) en = errno;
-	//	cerr << "'epoll_create1' failed [" << en << " <" << strerror(en) << ">]!" << endl;
-	//	return false;
-	//}
-	//
-	//nepe.events = EPOLLIN;
-	//
-	//if(epoll_ctl(epollfd, EPOLL_CTL_ADD, srvfd, &nepe) < 0)
-	//{
-	//	typeof(errno) en = errno;
-	//	cerr << "'epoll_create1' failed [" << en << " <" << strerror(en) << ">]!" << endl;
-	//	return false;
-	//}
-
 	return true;
 }
 
@@ -132,23 +113,6 @@ int UDPServer::GetData(void *buff, const int bufflen)
 /////////////////////////////////////////////////////////////////////////////////
 bool UDPServer::StopServer()
 {
-	//close(epollfd);
 	close(srvfd);
 	return true;
 }
-
-
-/////////////////////////////////////////////////////////////////////////////////
-// EPollCheck()
-/////////////////////////////////////////////////////////////////////////////////
-//bool UDPServer::EPollCheck()
-//{
-//#define MAX_EVENTS 2
-//	int nfds;
-//	struct epoll_event events[MAX_EVENTS];
-//	nfds = epoll_wait(epollfd, events, MAX_EVENTS, 0);
-//	if(nfds < 1)
-//		return false;
-//	return true;
-//#undef MAX_EVENTS
-//}
