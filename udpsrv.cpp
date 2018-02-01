@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <errno.h>
+#include <arpa/inet.h>
 
 #include "udpsrv.h"
 
@@ -92,10 +93,15 @@ bool UDPServer::StartServer(EPoller *ep)
 /////////////////////////////////////////////////////////////////////////////////
 bool UDPServer::GetData()
 {
+	const char *tmp;
+	char port[6];
 	ssize_t rv;
 	char data[100];
+	char ip[INET6_ADDRSTRLEN];
+	struct sockaddr_in6 srcaddr;
+	socklen_t srcaddrlen = sizeof(struct sockaddr_in6);
 
-	rv = recvfrom(srvfd, data, 100, 0, NULL, NULL);
+	rv = recvfrom(srvfd, data, 100, 0, (struct sockaddr *) &srcaddr, &srcaddrlen);
 	if(rv < 0)
 	{
 		typeof(errno) en = errno;
@@ -103,8 +109,29 @@ bool UDPServer::GetData()
 		return false;
 	}
 
+	if(srcaddr.sin6_family == AF_INET)
+	{
+		tmp = inet_ntop(AF_INET, &((struct sockaddr_in *) &srcaddr)->sin_addr, ip, INET6_ADDRSTRLEN);
+		sprintf(port, "%d", ntohs(srcaddr.sin6_port));
+	}
+	else if(srcaddr.sin6_family == AF_INET6)
+	{
+		tmp = inet_ntop(AF_INET6, &srcaddr.sin6_addr, ip, INET6_ADDRSTRLEN);
+		sprintf(port, "%d", ntohs(srcaddr.sin6_port));
+	}
+	else
+	{
+		strcpy(ip, "Not IP");
+		strcpy(port, "N/A");
+		tmp = ip; //just set tmp to be not null
+	}
+
+	if(!tmp)
+		strcpy(ip, "inet_ntop failed");
+
 	data[rv] = '\0';
 	cout << "Read # " << rv << " of bytes! Data = '" << data << "'" << endl;
+	cout << "Received from IP '" << ip << "' and port  = '" << port << "'" << endl;
 
 	return true;
 }
