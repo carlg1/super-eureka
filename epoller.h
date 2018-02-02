@@ -29,11 +29,10 @@ public:
 	};
 
 	EPoller() = delete;
-	EPoller(int to = 0);
-	//to [timemout] -- 0 == don't wait, -1 == block until event, or wait for 'to' msec (max 10,000 msec [10 sec])
+	EPoller(int _timeout = 0);
+	//_timemout -- 0 == don't wait, -1 == block until event, or wait for 'to' msec (max 10,000 msec [10 sec])
 	~EPoller();
 
-	bool Ready();
 	void Shutdown();
 	bool AddFD(const int fd, const int epoll_events, const epoller_cb_t *cb);
 	bool RemoveFD(const int fd);
@@ -42,9 +41,8 @@ public:
 	bool ProccessLoop();
 
  private:
-	bool addmoddelfd(const int fd, const int epoll_events, const epoller_cb_t *cb, const int op);
+	bool epollerctlfd(const int fd, const int epoll_events, const epoller_cb_t *cb, const int op);
 
-	int fdcnt; //fix me -- can go neg
 	int timeout;
 	int epollfd;
 

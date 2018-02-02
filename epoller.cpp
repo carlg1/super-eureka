@@ -2,6 +2,7 @@
 // #includes
 /////////////////////////////////////////////////////////////////////////////////
 #include <iostream>
+#include <sstream>
 
 #include <string.h>
 #include <unistd.h>
@@ -23,33 +24,40 @@ using namespace std;
 
 
 /////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+//
 // Class Funtions
+//
+/////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////////////
 // EPoller()
 /////////////////////////////////////////////////////////////////////////////////
-EPoller::EPoller(const int to)
+EPoller::EPoller(const int _timeout)
 {
 	rdyfds = -1;
-	fdcnt = 0;
-	timeout = -2; //fix me
 	maxevtcnt = MAXEVTCNT;
+
+	if(_timeout < -1 || _timeout > 10000)
+		throw invalid_argument("_timeout must be between -1 and 10000");
+	else
+		timeout = _timeout;
+
+	events = (struct epoll_event *) malloc(sizeof(struct epoll_event) * maxevtcnt);
+	if(events == nullptr)
+		throw runtime_error("Out of memory! Failed to malloc memory for event buffer!");
 
 	if((epollfd = epoll_create1(EPOLL_CLOEXEC)) < 0)
 	{
 		typeof(errno) en = errno;
-		cerr << "'epoll_create1' failed [" << en << " <" << strerror(en) << ">]!" << endl;
+		ostringstream errmsg;
+
+		errmsg << "Call to 'epoll_create1' failed due to '" << strerror(en) << "' [errno = " << en <<"]!";
+		free(events);
+
+		throw runtime_error(errmsg.str());
 	}
-
-	if(to >= -1 && to <= 10000)
-		timeout = to;
-	else
-		cerr << "Invalid timeout '" << to << "' " << "(valid values are -1 to 10000)!" << endl;
-
-	events = (struct epoll_event *) malloc(sizeof(struct epoll_event) * maxevtcnt);
-	if(events == nullptr)
-		cerr << "malloc failed!" << endl;
 }
 
 
@@ -62,17 +70,6 @@ EPoller::~EPoller()
 		Shutdown();
 
 	free(events);
-}
-
-
-/////////////////////////////////////////////////////////////////////////////////
-// Ready()
-/////////////////////////////////////////////////////////////////////////////////
-bool EPoller::Ready()
-{
-	if(epollfd > -1 || timeout != -2 || events == nullptr) //fix me
-		return true;
-	return false;
 }
 
 
@@ -92,8 +89,7 @@ void EPoller::Shutdown()
 /////////////////////////////////////////////////////////////////////////////////
 bool EPoller::AddFD(const int fd, const int epoll_events, const epoller_cb_t *cb)
 {
-	fdcnt++;
-	return addmoddelfd(fd, epoll_events, cb, EPOLL_CTL_ADD);
+	return epollerctlfd(fd, epoll_events, cb, EPOLL_CTL_ADD);
 }
 
 
@@ -102,7 +98,7 @@ bool EPoller::AddFD(const int fd, const int epoll_events, const epoller_cb_t *cb
 /////////////////////////////////////////////////////////////////////////////////
 bool EPoller::ModifyFD(const int fd, const int epoll_events, const epoller_cb_t *cb)
 {
-	return addmoddelfd(fd, epoll_events, cb, EPOLL_CTL_ADD);
+	return epollerctlfd(fd, epoll_events, cb, EPOLL_CTL_MOD);
 }
 
 
@@ -111,15 +107,14 @@ bool EPoller::ModifyFD(const int fd, const int epoll_events, const epoller_cb_t 
 /////////////////////////////////////////////////////////////////////////////////
 bool EPoller::RemoveFD(const int fd)
 {
-	fdcnt--;
-	return addmoddelfd(fd, 0, nullptr, EPOLL_CTL_DEL);
+	return epollerctlfd(fd, 0, nullptr, EPOLL_CTL_DEL);
 }
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// addmoddelfd()
+// epollctlfd()
 /////////////////////////////////////////////////////////////////////////////////
-bool EPoller::addmoddelfd(const int fd, const int epoll_events, const epoller_cb_t *cb, const int op)
+bool EPoller::epollerctlfd(const int fd, const int epoll_events, const epoller_cb_t *cb, const int op)
 {
 	struct epoll_event event;
 
@@ -142,9 +137,6 @@ bool EPoller::addmoddelfd(const int fd, const int epoll_events, const epoller_cb
 /////////////////////////////////////////////////////////////////////////////////
 EPoller::epoller_rv EPoller::Poll()
 {
-	if(fdcnt == 0)
-		return EPOLLER_NODATA;
-
 	rdyfds = epoll_wait(epollfd, events, maxevtcnt, timeout);
 	if(rdyfds < 0)
 	{
