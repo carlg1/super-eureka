@@ -21,23 +21,32 @@ using namespace std;
 
 
 /////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////
+//
 // Class Funtions
+//
+/////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////////////
 // UDPServer()
 /////////////////////////////////////////////////////////////////////////////////
-UDPServer::UDPServer(uint16_t prt, char *bindadr)
+UDPServer::UDPServer(const uint16_t _port, const char *const _bindaddr)
 {
 	srvfd = -1;
 
-	port = prt;
-	bindaddr = bindadr;
+	if(_port < 0 || _port > 65535)
+		throw invalid_argument("_port must be between 1 and 65536");
+	else
+		port = _port;
+
+	if(_bindaddr && !ValidateIP(_bindaddr))
+		throw invalid_argument("_bindaddr must be a valide IPv4 or IPv6 addresss");
+
+	bindaddr = _bindaddr;
 
 	epcb.obj = this;
 	epcb.funct = udpsrv_epoller_cb;
-
-	//fix me -- validate now?
 }
 
 
@@ -57,32 +66,86 @@ UDPServer::~UDPServer()
 bool UDPServer::StartServer(EPoller *ep)
 {
 	int rv;
-	int ov;
-	struct sockaddr_in6 sa;
+	int optval;
+	int addrlen;
+	struct sockaddr_in6 addr;
 
 	srvfd = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 	if(srvfd < 0)
 	{
-		cerr << "Failed to obtain 'socket'!" << endl;
+		typeof(errno) en = errno;
+		cerr << "'socket' failed [" << en << " <" << strerror(en) << ">]!" << endl;
 		return false;
 	}
 
-	ov = 1;
-	rv = setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, (void *) &ov, 4);
+	optval = 1;
+	rv = setsockopt(srvfd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, (void *) &optval, sizeof(int));
 	if(rv != 0)
 	{
 		typeof(errno) en = errno;
-		cerr << "'setsockopt' failed (continuing to run) [" << en << " <" << strerror(en) << ">]!" << endl;
+		cerr << "'setsockopt' failed [" << en << " <" << strerror(en) << ">]!" << endl;
+
+		StopServer();
+		return false;
 	}
 
-	memset(&sa, 0, sizeof(struct sockaddr_in6));
-	sa.sin6_family = AF_INET6;
-	sa.sin6_port = htons(port);
-	sa.sin6_addr = in6addr_any;
+	memset(&addr, 0, sizeof(struct sockaddr_in6));
+	if(!bindaddr.empty())
+	{
+		void *dst;
+		struct sockaddr_in  *addr4 = (sockaddr_in *) &addr;
+		struct sockaddr_in6 *addr6 = &addr;
 
-	rv = bind(srvfd, (const sockaddr*) &sa, sizeof(struct sockaddr_in6));
+		if(strchr(bindaddr.c_str(), ':') == nullptr)
+		{
+			dst = &addr4->sin_addr.s_addr;
+			addr4->sin_family = AF_INET;
+			addrlen = sizeof(struct sockaddr_in);
+		}
+		else
+		{
+			dst = addr6->sin6_addr.s6_addr;
+			addr6->sin6_family = AF_INET6;
+			addrlen = sizeof(struct sockaddr_in6);
+		}
 
-	ep->AddFD(srvfd, EPOLLIN, &epcb);
+		inet_pton(addr.sin6_family, bindaddr.c_str(), &dst);
+	}
+	else
+	{
+		addr.sin6_family = AF_INET6;
+		addr.sin6_port = htons(port);
+		addr.sin6_addr = in6addr_any;
+		addrlen = sizeof(struct sockaddr_in6);
+	}
+
+	rv = bind(srvfd, (const sockaddr*) &addr, addrlen);
+	if(rv != 0)
+	{
+		typeof(errno) en = errno;
+		cerr << "'bind' failed [" << en << " <" << strerror(en) << ">]!" << endl;
+
+		StopServer();
+		return false;
+	}
+
+	if(!ep->AddFD(srvfd, EPOLLIN, &epcb))
+	{
+		StopServer();
+		return false;
+	}
+
+	return true;
+}
+
+
+/////////////////////////////////////////////////////////////////////////////////
+// StopServer()
+/////////////////////////////////////////////////////////////////////////////////
+bool UDPServer::StopServer()
+{
+	close(srvfd);
+	srvfd = -1;
 
 	return true;
 }
@@ -121,9 +184,9 @@ bool UDPServer::GetData()
 	}
 	else
 	{
+		tmp = ip; //just to set tmp to be not null
 		strcpy(ip, "Not IP");
 		strcpy(port, "N/A");
-		tmp = ip; //just set tmp to be not null
 	}
 
 	if(!tmp)
@@ -138,10 +201,23 @@ bool UDPServer::GetData()
 
 
 /////////////////////////////////////////////////////////////////////////////////
-// StopServer()
+// ValidateIP()
 /////////////////////////////////////////////////////////////////////////////////
-bool UDPServer::StopServer()
+bool UDPServer::ValidateIP(const char *const addr)
 {
-	close(srvfd);
+	int af;
+	struct in6_addr dst;
+
+	if(addr == nullptr)
+		return false;
+
+	if(strchr(addr, ':') == nullptr)
+		af = AF_INET;
+	else
+		af = AF_INET6;
+
+	if(inet_pton(af, addr, &dst) != 1)
+		return false;
+
 	return true;
 }
